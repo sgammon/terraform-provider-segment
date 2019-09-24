@@ -55,9 +55,8 @@ func resourceSegmentTrackingPlanRead(r *schema.ResourceData, meta interface{}) e
 		return err
 	}
 
-	s, _ := json.Marshal(trackingPlan.Rules)
 	r.Set("display_name", trackingPlan.DisplayName)
-	r.Set("rules", string(s))
+	r.Set("rules", trackingPlan.Rules)
 
 	return nil
 }
