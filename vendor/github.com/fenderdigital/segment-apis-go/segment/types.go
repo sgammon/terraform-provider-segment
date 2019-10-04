@@ -4,9 +4,9 @@ import "time"
 
 // Workspace defines the struct for the workspace object
 type Workspace struct {
-	Name        string    `json:"name,omitempty"`
-	DisplayName string    `json:"display_name,omitempty"`
-	ID          string    `json:"id,omitempty"`
+	Name        string     `json:"name,omitempty"`
+	DisplayName string     `json:"display_name,omitempty"`
+	ID          string     `json:"id,omitempty"`
 	CreateTime  *time.Time `json:"create_time,omitempty"`
 }
 
@@ -22,7 +22,7 @@ type Source struct {
 	Parent        string        `json:"parent,omitempty"`
 	WriteKeys     []string      `json:"write_keys,omitempty"`
 	LibraryConfig LibraryConfig `json:"library_config,omitempty"`
-	CreateTime    *time.Time     `json:"create_time,omitempty"`
+	CreateTime    *time.Time    `json:"create_time,omitempty"`
 }
 
 // LibraryConfig contains information about a source's library
@@ -46,8 +46,8 @@ type Destination struct {
 	Enabled        bool                `json:"enabled,omitempty"`
 	ConnectionMode string              `json:"connection_mode,omitempty"`
 	Configs        []DestinationConfig `json:"config,omitempty"`
-	CreateTime     *time.Time           `json:"create_time,omitempty"`
-	UpdateTime     *time.Time           `json:"update_time,omitempty"`
+	CreateTime     *time.Time          `json:"create_time,omitempty"`
+	UpdateTime     *time.Time          `json:"update_time,omitempty"`
 }
 
 // TrackingPlans defines the struct for the tracking plan object
@@ -57,9 +57,9 @@ type TrackingPlans struct {
 
 // TrackingPlan defines the struct for the destination object
 type TrackingPlan struct {
-	Name        string    `json:"name,omitempty"`
-	DisplayName string    `json:"display_name,omitempty"`
-	Rules       Rules     `json:"rules,omitempty"`
+	Name        string     `json:"name,omitempty"`
+	DisplayName string     `json:"display_name,omitempty"`
+	Rules       Rules      `json:"rules,omitempty"`
 	CreateTime  *time.Time `json:"create_time,omitempty"`
 	UpdateTime  *time.Time `json:"update_time,omitempty"`
 }
@@ -76,10 +76,11 @@ type Rules struct {
 
 // Rule contains the information about the rule definition
 type Rule struct {
-	Schema     string          `json:"$schema,omitempty"`
-	Type       interface{}     `json:"type,omitempty"`
-	Properties map[string]Rule `json:"properties,omitempty"`
-	Required   []string        `json:"required,omitempty"`
+	Schema      string          `json:"$schema,omitempty"`
+	Type        interface{}     `json:"type,omitempty"`
+	Properties  map[string]Rule `json:"properties,omitempty"`
+	Required    []string        `json:"required,omitempty"`
+	Description string          `json:"description,omitempty"`
 }
 
 // Event contains the rules for each tracking event

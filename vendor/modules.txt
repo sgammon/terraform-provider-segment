@@ -61,7 +61,7 @@ github.com/blang/semver
 github.com/bmatcuk/doublestar
 # github.com/fatih/color v1.7.0
 github.com/fatih/color
-# github.com/fenderdigital/segment-apis-go v0.2.1-0.20190919230924-b3bd018f93ca
+# github.com/fenderdigital/segment-apis-go v0.2.1-0.20191004183308-3370eefdfc8d
 github.com/fenderdigital/segment-apis-go/segment
 # github.com/golang/protobuf v1.3.2
 github.com/golang/protobuf/proto
