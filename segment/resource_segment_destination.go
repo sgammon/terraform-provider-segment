@@ -69,7 +69,7 @@ func resourceSegmentDestinationCreate(r *schema.ResourceData, meta interface{}) 
 
 	dest, err := client.CreateDestination(srcName, destName, connMode, enabled, extractConfigs(configs))
 	if err != nil {
-		return err
+		return fmt.Errorf("ERROR Creating Destination!! Source: %q; Destination: %q; err: %v", srcName, destName, err)
 	}
 
 	r.SetId(dest.Name)
@@ -85,7 +85,7 @@ func resourceSegmentDestinationRead(r *schema.ResourceData, meta interface{}) er
 
 	d, err := client.GetDestination(srcName, destName)
 	if err != nil {
-		return err
+		return fmt.Errorf("ERROR Reading Destination!! Source: %q; Destination: %q; err: %v", srcName, destName, err)
 	}
 
 	r.Set("enabled", d.Enabled)
@@ -105,7 +105,7 @@ func resourceSegmentDestinationUpdate(r *schema.ResourceData, meta interface{}) 
 
 	_, err := client.UpdateDestination(srcName, destName, enabled, extractConfigs(configs))
 	if err != nil {
-		return err
+		return fmt.Errorf("ERROR Updating Destination!! Source: %q; Destination: %q; err: %v", srcName, destName, err)
 	}
 
 	return resourceSegmentDestinationRead(r, meta)
@@ -119,7 +119,7 @@ func resourceSegmentDestinationDelete(r *schema.ResourceData, meta interface{}) 
 
 	err := client.DeleteDestination(srcName, destName)
 	if err != nil {
-		return err
+		return fmt.Errorf("ERROR Deleting Destination!! Source: %q; Destination: %q; err: %v", srcName, destName, err)
 	}
 
 	return nil

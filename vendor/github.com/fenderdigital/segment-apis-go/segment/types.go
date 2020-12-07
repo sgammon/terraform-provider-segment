@@ -66,21 +66,24 @@ type TrackingPlan struct {
 
 // Rules contains the information about all the rules of a tracking plan
 type Rules struct {
-	Global         Rule    `json:"global"`
-	Events         []Event `json:"events"`
-	Identify       Rule    `json:"identify"`
-	Group          Rule    `json:"group"`
-	IdentifyTraits []Rule  `json:"identify_traits"`
-	GroupTraits    []Rule  `json:"group_traits"`
+	Global         Rule          `json:"global,omitempty"`
+	Events         []Event       `json:"events,omitempty"`
+	Identify       Rule          `json:"identify,omitempty"`
+	Group          Rule          `json:"group,omitempty"`
+	IdentifyTraits []interface{} `json:"identify_traits"`
+	GroupTraits    []interface{} `json:"group_traits"`
 }
 
 // Rule contains the information about the rule definition
 type Rule struct {
-	Schema      string          `json:"$schema,omitempty"`
-	Type        interface{}     `json:"type,omitempty"`
-	Properties  map[string]Rule `json:"properties,omitempty"`
-	Required    []string        `json:"required,omitempty"`
-	Description string          `json:"description,omitempty"`
+	Description string                 `json:"description,omitempty"`
+	Enum        []interface{}          `json:"enum,omitempty"`
+	Labels      map[string]interface{} `json:"labels,omitempty"`
+	Pattern     interface{}            `json:"pattern,omitempty"`
+	Properties  map[string]Rule        `json:"properties,omitempty"`
+	Required    []string               `json:"required,omitempty"`
+	Type        interface{}            `json:"type,omitempty"`
+	Schema      string                 `json:"$schema,omitempty"`
 }
 
 // Event contains the rules for each tracking event

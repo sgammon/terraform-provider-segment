@@ -38,7 +38,7 @@ func resourceSegmentSourceCreate(r *schema.ResourceData, meta interface{}) error
 
 	source, err := client.CreateSource(srcName, catName)
 	if err != nil {
-		return err
+		return fmt.Errorf("ERROR Creating Source!! Source: %q; Catalog: %q; err: %v", srcName, catName, err)
 	}
 
 	r.SetId(source.Name)
@@ -54,7 +54,7 @@ func resourceSegmentSourceRead(r *schema.ResourceData, meta interface{}) error {
 
 	s, err := client.GetSource(srcName)
 	if err != nil {
-		return err
+		return fmt.Errorf("ERROR Reading Source!! Source: %q; err: %v", srcName, err)
 	}
 
 	r.Set("catalog_name", s.CatalogName)
@@ -70,7 +70,7 @@ func resourceSegmentSourceDelete(r *schema.ResourceData, meta interface{}) error
 
 	err := client.DeleteSource(srcName)
 	if err != nil {
-		return err
+		return fmt.Errorf("ERROR Deleting Source!! Source: %q; err: %v", srcName, err)
 	}
 
 	return nil
