@@ -1,12 +1,11 @@
 package terraform
 
 import (
-	"bytes"
 	"fmt"
 	"log"
 	"strings"
 
-	"github.com/hashicorp/hcl2/hcl"
+	"github.com/hashicorp/hcl/v2"
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/hashicorp/terraform/addrs"
@@ -60,13 +59,25 @@ func (n *EvalCheckPlannedChange) Eval(ctx EvalContext) (interface{}, error) {
 			// all of the unknown values, since the final values might actually
 			// match what was there before after all.
 			log.Printf("[DEBUG] After incorporating new values learned so far during apply, %s change has become NoOp", absAddr)
+
+		case (plannedChange.Action == plans.CreateThenDelete && actualChange.Action == plans.DeleteThenCreate) ||
+			(plannedChange.Action == plans.DeleteThenCreate && actualChange.Action == plans.CreateThenDelete):
+			// If the order of replacement changed, then that is a bug in terraform
+			diags = diags.Append(tfdiags.Sourceless(
+				tfdiags.Error,
+				"Terraform produced inconsistent final plan",
+				fmt.Sprintf(
+					"When expanding the plan for %s to include new values learned so far during apply, the planned action changed from %s to %s.\n\nThis is a bug in Terraform and should be reported.",
+					absAddr, plannedChange.Action, actualChange.Action,
+				),
+			))
 		default:
 			diags = diags.Append(tfdiags.Sourceless(
 				tfdiags.Error,
 				"Provider produced inconsistent final plan",
 				fmt.Sprintf(
 					"When expanding the plan for %s to include new values learned so far during apply, provider %q changed the planned action from %s to %s.\n\nThis is a bug in the provider, which should be reported in the provider's own issue tracker.",
-					absAddr, n.ProviderAddr.ProviderConfig.Type,
+					absAddr, n.ProviderAddr.Provider.String(),
 					plannedChange.Action, actualChange.Action,
 				),
 			))
@@ -80,7 +91,7 @@ func (n *EvalCheckPlannedChange) Eval(ctx EvalContext) (interface{}, error) {
 			"Provider produced inconsistent final plan",
 			fmt.Sprintf(
 				"When expanding the plan for %s to include new values learned so far during apply, provider %q produced an invalid new value for %s.\n\nThis is a bug in the provider, which should be reported in the provider's own issue tracker.",
-				absAddr, n.ProviderAddr.ProviderConfig.Type, tfdiags.FormatError(err),
+				absAddr, n.ProviderAddr.Provider.String(), tfdiags.FormatError(err),
 			),
 		))
 	}
@@ -94,6 +105,7 @@ type EvalDiff struct {
 	Config         *configs.Resource
 	Provider       *providers.Interface
 	ProviderAddr   addrs.AbsProviderConfig
+	ProviderMetas  map[addrs.Provider]*configs.ProviderMeta
 	ProviderSchema **ProviderSchema
 	State          **states.ResourceInstanceObject
 	PreviousDiff   **plans.ResourceInstanceChange
@@ -118,10 +130,16 @@ func (n *EvalDiff) Eval(ctx EvalContext) (interface{}, error) {
 	provider := *n.Provider
 	providerSchema := *n.ProviderSchema
 
+	createBeforeDestroy := n.CreateBeforeDestroy
+	if n.PreviousDiff != nil {
+		// If we already planned the action, we stick to that plan
+		createBeforeDestroy = (*n.PreviousDiff).Action == plans.CreateThenDelete
+	}
+
 	if providerSchema == nil {
 		return nil, fmt.Errorf("provider schema is unavailable for %s", n.Addr)
 	}
-	if n.ProviderAddr.ProviderConfig.Type == "" {
+	if n.ProviderAddr.Provider.Type == "" {
 		panic(fmt.Sprintf("EvalDiff for %s does not have ProviderAddr set", n.Addr.Absolute(ctx.Path())))
 	}
 
@@ -133,12 +151,34 @@ func (n *EvalDiff) Eval(ctx EvalContext) (interface{}, error) {
 		// Should be caught during validation, so we don't bother with a pretty error here
 		return nil, fmt.Errorf("provider does not support resource type %q", n.Addr.Resource.Type)
 	}
-	forEach, _ := evaluateResourceForEachExpression(n.Config.ForEach, ctx)
+	forEach, _ := evaluateForEachExpression(n.Config.ForEach, ctx)
 	keyData := EvalDataForInstanceKey(n.Addr.Key, forEach)
 	configVal, _, configDiags := ctx.EvaluateBlock(config.Config, schema, nil, keyData)
 	diags = diags.Append(configDiags)
 	if configDiags.HasErrors() {
 		return nil, diags.Err()
+	}
+
+	metaConfigVal := cty.NullVal(cty.DynamicPseudoType)
+	if n.ProviderMetas != nil {
+		if m, ok := n.ProviderMetas[n.ProviderAddr.Provider]; ok && m != nil {
+			// if the provider doesn't support this feature, throw an error
+			if (*n.ProviderSchema).ProviderMeta == nil {
+				diags = diags.Append(&hcl.Diagnostic{
+					Severity: hcl.DiagError,
+					Summary:  fmt.Sprintf("Provider %s doesn't support provider_meta", n.ProviderAddr.Provider.String()),
+					Detail:   fmt.Sprintf("The resource %s belongs to a provider that doesn't support provider_meta blocks", n.Addr),
+					Subject:  &m.ProviderRange,
+				})
+			} else {
+				var configDiags tfdiags.Diagnostics
+				metaConfigVal, _, configDiags = ctx.EvaluateBlock(m.Config, (*n.ProviderSchema).ProviderMeta, nil, EvalDataForNoInstanceKey)
+				diags = diags.Append(configDiags)
+				if configDiags.HasErrors() {
+					return nil, diags.Err()
+				}
+			}
+		}
 	}
 
 	absAddr := n.Addr.Absolute(ctx.Path())
@@ -205,6 +245,7 @@ func (n *EvalDiff) Eval(ctx EvalContext) (interface{}, error) {
 		PriorState:       priorVal,
 		ProposedNewState: proposedNewVal,
 		PriorPrivate:     priorPrivate,
+		ProviderMeta:     metaConfigVal,
 	})
 	diags = diags.Append(resp.Diagnostics.InConfigBody(config.Config))
 	if diags.HasErrors() {
@@ -231,7 +272,7 @@ func (n *EvalDiff) Eval(ctx EvalContext) (interface{}, error) {
 			"Provider produced invalid plan",
 			fmt.Sprintf(
 				"Provider %q planned an invalid value for %s.\n\nThis is a bug in the provider, which should be reported in the provider's own issue tracker.",
-				n.ProviderAddr.ProviderConfig.Type, tfdiags.FormatErrorPrefixed(err, absAddr.String()),
+				n.ProviderAddr.Provider.String(), tfdiags.FormatErrorPrefixed(err, absAddr.String()),
 			),
 		))
 	}
@@ -247,7 +288,10 @@ func (n *EvalDiff) Eval(ctx EvalContext) (interface{}, error) {
 			// to notice in the logs if an inconsistency beyond the type system
 			// leads to a downstream provider failure.
 			var buf strings.Builder
-			fmt.Fprintf(&buf, "[WARN] Provider %q produced an invalid plan for %s, but we are tolerating it because it is using the legacy plugin SDK.\n    The following problems may be the cause of any confusing errors from downstream operations:", n.ProviderAddr.ProviderConfig.Type, absAddr)
+			fmt.Fprintf(&buf,
+				"[WARN] Provider %q produced an invalid plan for %s, but we are tolerating it because it is using the legacy plugin SDK.\n    The following problems may be the cause of any confusing errors from downstream operations:",
+				n.ProviderAddr.Provider.String(), absAddr,
+			)
 			for _, err := range errs {
 				fmt.Fprintf(&buf, "\n      - %s", tfdiags.FormatError(err))
 			}
@@ -259,7 +303,7 @@ func (n *EvalDiff) Eval(ctx EvalContext) (interface{}, error) {
 					"Provider produced invalid plan",
 					fmt.Sprintf(
 						"Provider %q planned an invalid value for %s.\n\nThis is a bug in the provider, which should be reported in the provider's own issue tracker.",
-						n.ProviderAddr.ProviderConfig.Type, tfdiags.FormatErrorPrefixed(err, absAddr.String()),
+						n.ProviderAddr.Provider.String(), tfdiags.FormatErrorPrefixed(err, absAddr.String()),
 					),
 				))
 			}
@@ -302,7 +346,7 @@ func (n *EvalDiff) Eval(ctx EvalContext) (interface{}, error) {
 					"Provider produced invalid plan",
 					fmt.Sprintf(
 						"Provider %q has indicated \"requires replacement\" on %s for a non-existent attribute path %#v.\n\nThis is a bug in the provider, which should be reported in the provider's own issue tracker.",
-						n.ProviderAddr.ProviderConfig.Type, absAddr, path,
+						n.ProviderAddr.Provider.String(), absAddr, path,
 					),
 				))
 				continue
@@ -346,7 +390,7 @@ func (n *EvalDiff) Eval(ctx EvalContext) (interface{}, error) {
 	case !reqRep.Empty():
 		// If there are any "requires replace" paths left _after our filtering
 		// above_ then this is a replace action.
-		if n.CreateBeforeDestroy {
+		if createBeforeDestroy {
 			action = plans.CreateThenDelete
 		} else {
 			action = plans.DeleteThenCreate
@@ -380,6 +424,7 @@ func (n *EvalDiff) Eval(ctx EvalContext) (interface{}, error) {
 			PriorState:       nullPriorVal,
 			ProposedNewState: proposedNewVal,
 			PriorPrivate:     plannedPrivate,
+			ProviderMeta:     metaConfigVal,
 		})
 		// We need to tread carefully here, since if there are any warnings
 		// in here they probably also came out of our previous call to
@@ -398,7 +443,7 @@ func (n *EvalDiff) Eval(ctx EvalContext) (interface{}, error) {
 				"Provider produced invalid plan",
 				fmt.Sprintf(
 					"Provider %q planned an invalid value for %s%s.\n\nThis is a bug in the provider, which should be reported in the provider's own issue tracker.",
-					n.ProviderAddr.ProviderConfig.Type, absAddr, tfdiags.FormatError(err),
+					n.ProviderAddr.Provider.String(), absAddr, tfdiags.FormatError(err),
 				),
 			))
 		}
@@ -411,7 +456,7 @@ func (n *EvalDiff) Eval(ctx EvalContext) (interface{}, error) {
 	// as a replace change, even though so far we've been treating it as a
 	// create.
 	if action == plans.Create && priorValTainted != cty.NilVal {
-		if n.CreateBeforeDestroy {
+		if createBeforeDestroy {
 			action = plans.CreateThenDelete
 		} else {
 			action = plans.DeleteThenCreate
@@ -567,49 +612,6 @@ func processIgnoreChangesIndividual(prior, proposed cty.Value, ignoreChanges []h
 	return ret, diags
 }
 
-// legacyFlagmapKeyForTraversal constructs a key string compatible with what
-// the flatmap package would generate for an attribute addressable by the given
-// traversal.
-//
-// This is used only to shim references to attributes within the diff and
-// state structures, which have not (at the time of writing) yet been updated
-// to use the newer HCL-based representations.
-func legacyFlatmapKeyForTraversal(traversal hcl.Traversal) string {
-	var buf bytes.Buffer
-	first := true
-	for _, step := range traversal {
-		if !first {
-			buf.WriteByte('.')
-		}
-		switch ts := step.(type) {
-		case hcl.TraverseRoot:
-			buf.WriteString(ts.Name)
-		case hcl.TraverseAttr:
-			buf.WriteString(ts.Name)
-		case hcl.TraverseIndex:
-			val := ts.Key
-			switch val.Type() {
-			case cty.Number:
-				bf := val.AsBigFloat()
-				buf.WriteString(bf.String())
-			case cty.String:
-				s := val.AsString()
-				buf.WriteString(s)
-			default:
-				// should never happen, since no other types appear in
-				// traversals in practice.
-				buf.WriteByte('?')
-			}
-		default:
-			// should never happen, since we've covered all of the types
-			// that show up in parsed traversals in practice.
-			buf.WriteByte('?')
-		}
-		first = false
-	}
-	return buf.String()
-}
-
 // a group of key-*ResourceAttrDiff pairs from the same flatmapped container
 type flatAttrDiff map[string]*ResourceAttrDiff
 
@@ -630,33 +632,6 @@ func (f flatAttrDiff) keepDiff(ignoreChanges map[string]bool) bool {
 	return false
 }
 
-// sets, lists and maps need to be compared for diff inclusion as a whole, so
-// group the flatmapped keys together for easier comparison.
-func groupContainers(d *InstanceDiff) map[string]flatAttrDiff {
-	isIndex := multiVal.MatchString
-	containers := map[string]flatAttrDiff{}
-	attrs := d.CopyAttributes()
-	// we need to loop once to find the index key
-	for k := range attrs {
-		if isIndex(k) {
-			// add the key, always including the final dot to fully qualify it
-			containers[k[:len(k)-1]] = flatAttrDiff{}
-		}
-	}
-
-	// loop again to find all the sub keys
-	for prefix, values := range containers {
-		for k, attrDiff := range attrs {
-			// we include the index value as well, since it could be part of the diff
-			if strings.HasPrefix(k, prefix) {
-				values[k] = attrDiff
-			}
-		}
-	}
-
-	return containers
-}
-
 // EvalDiffDestroy is an EvalNode implementation that returns a plain
 // destroy diff.
 type EvalDiffDestroy struct {
@@ -674,7 +649,7 @@ func (n *EvalDiffDestroy) Eval(ctx EvalContext) (interface{}, error) {
 	absAddr := n.Addr.Absolute(ctx.Path())
 	state := *n.State
 
-	if n.ProviderAddr.ProviderConfig.Type == "" {
+	if n.ProviderAddr.Provider.Type == "" {
 		if n.DeposedKey == "" {
 			panic(fmt.Sprintf("EvalDiffDestroy for %s does not have ProviderAddr set", absAddr))
 		} else {

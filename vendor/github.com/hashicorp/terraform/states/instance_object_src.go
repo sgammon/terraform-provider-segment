@@ -51,9 +51,10 @@ type ResourceInstanceObjectSrc struct {
 
 	// These fields all correspond to the fields of the same name on
 	// ResourceInstanceObject.
-	Private      []byte
-	Status       ObjectStatus
-	Dependencies []addrs.Referenceable
+	Private             []byte
+	Status              ObjectStatus
+	Dependencies        []addrs.ConfigResource
+	CreateBeforeDestroy bool
 }
 
 // Decode unmarshals the raw representation of the object attributes. Pass the
@@ -83,10 +84,11 @@ func (os *ResourceInstanceObjectSrc) Decode(ty cty.Type) (*ResourceInstanceObjec
 	}
 
 	return &ResourceInstanceObject{
-		Value:        val,
-		Status:       os.Status,
-		Dependencies: os.Dependencies,
-		Private:      os.Private,
+		Value:               val,
+		Status:              os.Status,
+		Dependencies:        os.Dependencies,
+		Private:             os.Private,
+		CreateBeforeDestroy: os.CreateBeforeDestroy,
 	}, nil
 }
 
