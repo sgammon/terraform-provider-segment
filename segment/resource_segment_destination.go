@@ -6,6 +6,7 @@ import (
 
 	"github.com/fenderdigital/segment-apis-go/segment"
 	"github.com/hashicorp/terraform/helper/schema"
+	"github.com/hashicorp/terraform/helper/validation"
 )
 
 func resourceSegmentDestination() *schema.Resource {
@@ -20,9 +21,10 @@ func resourceSegmentDestination() *schema.Resource {
 				Required: true,
 			},
 			"connection_mode": {
-				Type:     schema.TypeString,
-				Required: true,
-				ForceNew: true,
+				Type:         schema.TypeString,
+				Required:     true,
+				ForceNew:     true,
+				ValidateFunc: validation.StringInSlice([]string{"UNSPECIFIED", "CLOUD", "DEVICE"}, true),
 			},
 			"enabled": {
 				Type:     schema.TypeBool,
