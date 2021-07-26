@@ -2,6 +2,7 @@ package segment
 
 import (
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/fenderdigital/segment-apis-go/segment"
@@ -10,6 +11,7 @@ import (
 
 func resourceSegmentDestination() *schema.Resource {
 	return &schema.Resource{
+		SchemaVersion: 1,
 		Schema: map[string]*schema.Schema{
 			"source_name": {
 				Type:     schema.TypeString,
@@ -32,6 +34,10 @@ func resourceSegmentDestination() *schema.Resource {
 				Type: schema.TypeSet,
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
+						"id": {
+							Type:     schema.TypeString,
+							Computed: true,
+						},
 						"name": {
 							Type:     schema.TypeString,
 							Required: true,
@@ -147,8 +153,25 @@ func resourceSegmentDestinationImport(r *schema.ResourceData, meta interface{}) 
 	r.Set("source_name", srcName)
 	r.Set("destination_name", destName)
 	r.Set("enabled", d.Enabled)
-	r.Set("configs", d.Configs)
 	r.Set("connection_mode", d.ConnectionMode)
+
+	y := make([]interface{}, len(d.Configs))
+	for i, v := range d.Configs {
+		y[i] = map[string]interface{}{
+			"id":    v.Name,
+			"name":  v.DisplayName,
+			"type":  v.Type,
+			"value": fmt.Sprintf("%v", v.Value),
+		}
+	}
+
+	confs := schema.NewSet(func(val interface{}) int {
+		config := val.(map[string]interface{})
+		log.Printf("[DEBUG] Found config value %v", config)
+		return schema.HashString(config["id"])
+	}, y)
+
+	r.Set("configs", confs)
 
 	results := make([]*schema.ResourceData, 1)
 	results[0] = r
@@ -162,9 +185,10 @@ func extractConfigs(s *schema.Set) []segment.DestinationConfig {
 	if s != nil {
 		for _, config := range s.List() {
 			c := segment.DestinationConfig{
-				Name:  config.(map[string]interface{})["name"].(string),
-				Type:  config.(map[string]interface{})["type"].(string),
-				Value: config.(map[string]interface{})["value"],
+				Name:        config.(map[string]interface{})["id"].(string),
+				Type:        config.(map[string]interface{})["type"].(string),
+				Value:       config.(map[string]interface{})["value"],
+				DisplayName: config.(map[string]interface{})["name"].(string),
 			}
 			configs = append(configs, c)
 		}
