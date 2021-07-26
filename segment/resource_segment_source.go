@@ -58,6 +58,7 @@ func resourceSegmentSourceRead(r *schema.ResourceData, meta interface{}) error {
 	}
 
 	r.Set("catalog_name", s.CatalogName)
+	r.Set("source_name", srcName)
 
 	return nil
 }
@@ -85,6 +86,7 @@ func resourceSegmentSourceImport(r *schema.ResourceData, meta interface{}) ([]*s
 
 	r.SetId(s.Name)
 	r.Set("catalog_name", s.CatalogName)
+	r.Set("source_name", idToName(s.Name))
 
 	results := make([]*schema.ResourceData, 1)
 	results[0] = r
